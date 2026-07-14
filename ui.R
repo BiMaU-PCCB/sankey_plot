@@ -36,7 +36,7 @@ ui <- fluidPage(
                      tags$li("Timepoint labels (the titles above each column) can be dragged left or right to fine-tune their position."),
                      tags$li("Nodes can also be dragged to reposition them, but any manual position is reset if you change a color, a label, or another visual option."),
                      tags$li("Timepoints are shown in the same order as the columns in your Excel file."),
-                     tags$li("Groups appear in the order shown in the table on the right. You can use the ", tags$b("\u25B2 / \u25BC"), " buttons to change it."),
+                     tags$li("You can use the ", tags$b("\u25B2 / \u25BC"), " buttons to reorder the groups and change their position."),
                      tags$li("PDF exports preserve colors and labels, but not manual node and timepoint positions."),
                      tags$li("HTML exports preserve selected colors and labels and allow interactive editing of nodes and timepoints in your browser.")
                    )
