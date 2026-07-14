@@ -24,10 +24,10 @@ ui <- fluidPage(
                             class = "info-btn"),
                br(), br(),
                hr(),
-               downloadButton("downloadPlotPDF", "Download Sankey as PDF",
+               downloadButton("downloadPlotPDF", "Export Sankey plot as PDF",
                               class = "btn-success", icon = icon("file-pdf")),
                br(), br(),
-               downloadButton("downloadPlotHTML", "Download Sankey as HTML",
+               downloadButton("downloadPlotHTML", "Export Sankey plot as HTML",
                               class = "btn-success", icon = icon("file-code")),
                br(), br(),
                div(class = "alert alert-info", style = "font-size: 0.85em;",
@@ -37,8 +37,7 @@ ui <- fluidPage(
                      tags$li("Nodes can also be dragged to adjust their position. However, manual positions will be reset whenever you change a color, label, or other visualization option."),
                      tags$li("Timepoints are shown in the same order as the columns in your Excel file."),
                      tags$li("You can use the ", tags$b("\u25B2 / \u25BC"), " buttons to reorder the groups and change their position."),
-                     tags$li("PDF exports preserve colors and labels, but not manual node and timepoint positions."),
-                     tags$li("HTML exports preserve selected colors and labels and allow interactive editing of nodes and timepoints in your browser.")
+                     tags$li("Exports preserve colors and labels, but not manual node and timepoint positions."),
                    )
                )
            )

@@ -574,7 +574,7 @@ server <- function(input, output, session) {
       var fontSize = %d;
       var offsets = %s;
       var nodeWidth = this.sankey.nodeWidth();
-      var baseShift = 150; // nudge to the left so it sits nicely centered
+      var baseShift = 140; // nudge to the left so it sits nicely centered
 
       var svg = d3.select(el).select("svg");
 
