@@ -74,7 +74,7 @@ The input Excel file must follow this structure:
 * Column names must not contain `_`, `$`, or `@`.
 * Missing values must be represented as empty cells (not `NA` or `NaN`).
 
-An example Excel file (`Example_1.xlsx`) is included in the `data/` folder and can be used to test the application. This file follows the required input structure.
+An example Excel file (`Example.xlsx`) is included in the `data/` folder and can be used to test the application. This file follows the required input structure.
 
 This structure is also described inside the application in the **"Info: Data structure"** button.
 
