@@ -46,3 +46,17 @@ data_preparation <- function(dades) {
 
   list(links = df_links, nodes = df_nodes, num_temps = n_temps, col_names = temps)
 }
+
+
+
+
+# group order changes.
+safe_id <- function(x) {
+  gsub("[^A-Za-z0-9]", "_", x)
+}
+
+# Swaps two rows of a data frame (used to move a group up/down in the order)
+swap_rows <- function(df, i, j) {
+  df[c(i, j), ] <- df[c(j, i), ]
+  df
+}

@@ -17,15 +17,17 @@ server <- function(input, output, session) {
                  ),
                  
                  column(3,
-                        checkboxGroupInput("visual_options", "Visualization:",
+                        checkboxGroupInput("visual_options",
+                                           tags$strong("Visualization:"),
                                            choices = list("Show values on links" = "show_values")),
                         uiOutput("slider_tamany_valors_links"),
-                        uiOutput("titol_sankey")
+                        tags$strong("Timepoint label size:"),
+                        sliderInput("n_titol","", value = 15, min = 0, max = 50)
                  ),
                  column(3,
-                        uiOutput("labels_inputs"),
-                        h5(strong("Label size")),
-                        sliderInput("n_titol","",value = 15, min = 0,max = 50)
+                        tags$strong("Timepoint label:"),
+                        uiOutput("labels_inputs")
+                        
                  )
                )
            )
@@ -43,7 +45,6 @@ server <- function(input, output, session) {
     }
   })
   
-
   
   
   
@@ -71,6 +72,10 @@ server <- function(input, output, session) {
   )
   
   
+  # Guard used to make sure each dynamically input only gets ONE observeEvent registered on it.
+  registered_ids <- reactiveValues()
+  
+  
   observeEvent(input$info_dades, {
     showModal(modalDialog(
       title = "Required data structure",
@@ -83,7 +88,8 @@ server <- function(input, output, session) {
           tags$li("The first column must contain the patient IDs (one unique ID per row)."),
           tags$li("All remaining columns must correspond to time points."),
           tags$li("Column names should not contain special characters such as _, $, or @."),
-          tags$li("Values within each column must be consistent (e.g. 'Barcelona' and 'BCN' are treated as different categories).")
+          tags$li("Values within each column must be consistent (e.g. 'Barcelona' and 'BCN' are treated as different categories)."),
+          tags$li("Missing values must be left as empty cells. Do not use values such as 'NA', 'NaN', or similar placeholders.")
         ),
         
         tags$hr(),
@@ -175,30 +181,62 @@ server <- function(input, output, session) {
     
     rv$nodes$color <- colors_df$color[match(rv$nodes$group, colors_df$group)]
     
-    # Store color and label info per group (labels initially NA)
+    # Store color, label, and order info per group (labels initially NA).
     rv$data <- data.frame(
       group = grups,
       color = colors_df$color,
       labels = grups,
       stringsAsFactors = FALSE
     )
+    
+    # Reset the observer registration guard for the new file's groups
+    for (nm in names(registered_ids)) {
+      registered_ids[[nm]] <- NULL
+    }
   })
   
   
   
-  # Reactive that builds nodes with assigned colors and labels
-  nodes <- reactive({
-    req(rv$nodes, rv$data)
+  # Reactive that reorders the raw nodes according to the group order set in rv$data
+  
+  ordered_nodes_info <- reactive({
+    req(rv$nodes, rv$data, rv$col_names)
+    
     df_nodes <- rv$nodes
+    
+  
+    timepoint_prefix <- sub("^([^_]*)_.*$", "\\1", df_nodes$name)
+    time_idx <- match(timepoint_prefix, rv$col_names)
+    
+    # Desired vertical rank of each node's group, based on the current
+    # row order of rv$data (the order the user has set via the arrows)
+    group_rank <- match(df_nodes$group, rv$data$group)
+    
+    new_order <- order(time_idx, group_rank)
+    
+    # id_map[old 1-indexed position] -> new 0-indexed id
+    id_map <- integer(nrow(df_nodes))
+    id_map[new_order] <- seq_len(nrow(df_nodes)) - 1
+    
+    list(
+      df_nodes = df_nodes[new_order, ],
+      id_map = id_map
+    )
+  })
+  
+  
+  
+  # Reactive that builds nodes with assigned colors, labels and group order
+  nodes <- reactive({
+    info <- ordered_nodes_info()
+    df_nodes <- info$df_nodes
     
     df_nodes$colors <- rv$data$color[match(df_nodes$group, rv$data$group)]
     df_nodes$label <- rv$data$labels[match(df_nodes$group, rv$data$group)]
     
-    # Try to change the node names
-    suffix <- sub(".*(_[0-9]+)$", "\\1", df_nodes$name)
-    df_nodes$name <- paste(df_nodes$label, suffix, sep = " ")
-    df_nodes$name <- sub("_[^_]*$", "", df_nodes$name)
-    
+    # Build a clear, unique display name: "<Timepoint> <Label>"
+    timepoint_prefix <- sub("^([^_]*)_.*$", "\\1", df_nodes$name)
+    df_nodes$name <- paste(timepoint_prefix, df_nodes$label, sep = " ")
     
     df_nodes
   })
@@ -206,18 +244,40 @@ server <- function(input, output, session) {
   
   
   
+  # Registers the color / label / reorder observers for each group
   observe({
     req(rv$data)
     
-    df_uniques <- rv$data[!duplicated(rv$data$group), c("group", "color")]
+    grups <- rv$data$group
     
-    lapply(seq_len(nrow(df_uniques)), function(i) {
-      observeEvent(input[[paste0("color_group_", i)]], {
-        nou_color <- input[[paste0("color_group_", i)]]
-        grup      <- df_uniques$group[i]
+    lapply(grups, function(grup) {
+      id_safe <- safe_id(grup)
+      
+      if (is.null(registered_ids[[id_safe]])) {
+        registered_ids[[id_safe]] <- TRUE
         
-        rv$data$color[rv$data$group == grup] <- nou_color
-      }, ignoreInit = TRUE)
+        observeEvent(input[[paste0("color_group_", id_safe)]], {
+          rv$data$color[rv$data$group == grup] <- input[[paste0("color_group_", id_safe)]]
+        }, ignoreInit = TRUE)
+        
+        observeEvent(input[[paste0("label_group_", id_safe)]], {
+          rv$data$labels[rv$data$group == grup] <- input[[paste0("label_group_", id_safe)]]
+        }, ignoreInit = TRUE)
+        
+        observeEvent(input[[paste0("move_up_", id_safe)]], {
+          pos <- match(grup, rv$data$group)
+          if (!is.na(pos) && pos > 1) {
+            rv$data <- swap_rows(rv$data, pos, pos - 1)
+          }
+        }, ignoreInit = TRUE)
+        
+        observeEvent(input[[paste0("move_down_", id_safe)]], {
+          pos <- match(grup, rv$data$group)
+          if (!is.na(pos) && pos < nrow(rv$data)) {
+            rv$data <- swap_rows(rv$data, pos, pos + 1)
+          }
+        }, ignoreInit = TRUE)
+      }
     })
   })
   
@@ -226,33 +286,22 @@ server <- function(input, output, session) {
   
   # Reactive links (colors can be added if desired)
   links <- reactive({
-    req(rv$links, nodes())
+    req(rv$links)
+    
+    info <- ordered_nodes_info()
     df_links <- rv$links
     
-    df_nodes <- nodes()
     if (!"group" %in% colnames(df_links)) {
-      df_links$group <- df_nodes$group[df_links$source + 1]
+      df_links$group <- rv$nodes$group[df_links$source + 1]
     }
     
     df_links$colors <- rv$data$color[match(df_links$group, rv$data$group)]
+    
+    # Remap source/target indices so they point at the reordered node rows
+    df_links$source <- info$id_map[df_links$source + 1]
+    df_links$target <- info$id_map[df_links$target + 1]
+    
     df_links
-  })
-  
-  
-  
-  
-  observe({
-    req(rv$data)
-    
-    df_uniques <- rv$data[!duplicated(rv$data$group), c("group", "labels")]
-    
-    lapply(seq_len(nrow(df_uniques)), function(i) {
-      observeEvent(input[[paste0("label_group_", i)]], {
-        grup <- df_uniques$group[i]
-        nova_etiqueta <- input[[paste0("label_group_", i)]]
-        rv$data$labels[rv$data$group == grup] <- nova_etiqueta
-      }, ignoreInit = TRUE)
-    })
   })
   
   
@@ -261,31 +310,44 @@ server <- function(input, output, session) {
   output$group_labels_colors_table <- renderUI({
     req(rv$data)
     
-    df_uniques <- rv$data[!duplicated(rv$data$group), c("group", "labels", "color")]
+    # Defensive de-duplication, in case rv$data ever ends up with repeated
+    # group rows (e.g. a stray reactive re-run)
+    df_uniques <- rv$data[!duplicated(rv$data$group), ]
+    n <- nrow(df_uniques)
     
     ui_elements <- list(
-      h5("Assignment of labels and colors per group:"),
+      h5("Assignment of labels, colors and order per group:"),
       fluidRow(
-        column(4, strong("Group")),
+        column(2, strong("Order")),
+        column(3, strong("Group")),
         column(4, strong("Label")),
-        column(4, strong("Color"))
+        column(3, strong("Color"))
       )
     )
     
-    rows <- lapply(seq_len(nrow(df_uniques)), function(i) {
+    rows <- lapply(seq_len(n), function(i) {
+      grup <- df_uniques$group[i]
+      id_safe <- safe_id(grup)
+      
       fluidRow(
-        column(4, df_uniques$group[i]),
+        column(2,
+               actionButton(paste0("move_up_", id_safe), NULL,
+                            icon = icon("arrow-up"), class = "btn-sm btn-outline-secondary"),
+               actionButton(paste0("move_down_", id_safe), NULL,
+                            icon = icon("arrow-down"), class = "btn-sm btn-outline-secondary")
+        ),
+        column(3, df_uniques$group[i]),
         column(4,
                textInput(
-                 inputId = paste0("label_group_", i),
+                 inputId = paste0("label_group_", id_safe),
                  label = NULL,
                  value = df_uniques$labels[i],
-                 placeholder = paste("Label for", df_uniques$group[i])
+                 placeholder = paste("Label for", grup)
                )
         ),
-        column(4,
+        column(3,
                colourInput(
-                 inputId = paste0("color_group_", i),
+                 inputId = paste0("color_group_", id_safe),
                  label = NULL,
                  value = df_uniques$color[i],
                  showColour = "both"
@@ -308,7 +370,7 @@ server <- function(input, output, session) {
     
     tagList(
       lapply(seq_len(n), function(i) {
-        textInput(paste0("label_temps_", i), paste("Time label", i), value = rv$col_names[i])
+        textInput(paste0("label_temps_", i), paste("Time", i), value = rv$col_names[i])
       })
     )
   })
@@ -323,9 +385,7 @@ server <- function(input, output, session) {
   })
   
   
-  # Receives the updated horizontal offsets (in px) after the user drags a
-  # time-point column label in the browser, and stores them so they survive
-  # future re-renders of the sankey widget
+  # Receives the updated horizontal offsets (in px)
   observeEvent(input$time_label_offsets, {
     req(input$time_label_offsets)
     offs <- tryCatch(jsonlite::fromJSON(input$time_label_offsets), error = function(e) NULL)
@@ -386,6 +446,50 @@ server <- function(input, output, session) {
   # Applies the extra rendering (labels, values, titles) to a given sankey widget
   decorate_sankey <- function(p) {
     
+    # --- Force the vertical order of nodes within each timepoint column ---
+    order_map <- setNames(seq_along(rv$data$group) - 1, rv$data$group)
+    order_map_json <- jsonlite::toJSON(as.list(order_map), auto_unbox = TRUE)
+    
+    p <- onRender(p, sprintf('
+      function(el) {
+        var sankey = this.sankey;
+        var nodePadding = sankey.nodePadding();
+        var linkGen = sankey.link();
+        var orderMap = %s;
+        
+        var nodes = sankey.nodes();
+        
+        var byX = {};
+        nodes.forEach(function(n) {
+          var key = n.x;
+          if (!byX[key]) byX[key] = [];
+          byX[key].push(n);
+        });
+        
+        Object.keys(byX).forEach(function(xKey) {
+          var colNodes = byX[xKey];
+          colNodes.sort(function(a, b) {
+            var ra = (orderMap[a.group] !== undefined) ? orderMap[a.group] : 999;
+            var rb = (orderMap[b.group] !== undefined) ? orderMap[b.group] : 999;
+            return ra - rb;
+          });
+          
+          var y = 0;
+          colNodes.forEach(function(n) {
+            n.y = y;
+            y += n.dy + nodePadding;
+          });
+        });
+        
+        d3.select(el).selectAll(".node")
+          .attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
+        
+        d3.select(el).selectAll(".link")
+          .attr("d", linkGen);
+      }
+    ', order_map_json))
+    
+    
     labels <- nodes()$label
     if (all(is.na(labels))) labels <- NULL
     
@@ -399,6 +503,13 @@ server <- function(input, output, session) {
           .attr("x", x.options.nodeWidth - 35)
           .attr("alignment-baseline", "middle")
           .attr("text-anchor", "middle");
+
+        // Rebuild the hover tooltip so the name and the count (n) are
+        // clearly separated by a space, instead of the librarys default
+        // "Name\\nvalue" format (which can render without a visible break).
+        d3.select(el).selectAll(".node")
+          .select("title")
+          .text(function(d) { return d.name + " (n = " + Math.round(d.value) + ")"; });
       }
     ', labels_json))
     }
@@ -446,13 +557,7 @@ server <- function(input, output, session) {
       
       font_size_titol <- input$n_titol %||% 15
       
-      # Per-column horizontal offset (px) accumulated from manual dragging.
-      # Falls back to zeros if it hasn't been set yet or the number of
-      # columns changed (e.g. a new file was uploaded).
-      # Read with isolate() so that dragging (which updates this value)
-      # does NOT itself trigger a full re-render of the sankey widget -
-      # the drag already moves the label live via D3. The stored value is
-      # still picked up next time the plot rebuilds for another reason.
+    
       offsets <- isolate(rv$time_label_offsets)
       if (is.null(offsets) || length(offsets) != length(labels_t)) {
         offsets <- rep(0, length(labels_t))
@@ -579,8 +684,7 @@ server <- function(input, output, session) {
         zoom = 2
       )
       
-      # Step 2: convert the image to PDF making the page exactly
-      # the size of the image -> the chart fills 100% of the page
+      # Step 2: convert the image to PDF making the page exactly the size of the image
       img <- magick::image_read(temp_png)
       magick::image_write(img, path = file, format = "pdf", density = "150x150")
     }
